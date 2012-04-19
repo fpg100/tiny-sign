@@ -45,6 +45,7 @@ import java.util.jar.JarOutputStream;
 import java.util.jar.Manifest;
 import java.util.regex.Pattern;
 
+import org.apache.commons.codec.binary.Hex;
 import org.apache.harmony.misc.Base64;
 import org.apache.harmony.security.pkcs7.ContentInfo;
 import org.apache.harmony.security.pkcs7.SignedData;
@@ -56,7 +57,7 @@ import org.apache.harmony.security.x509.Certificate;
  * Command line tool to sign JAR files (including APKs and OTA updates) in a way compatible with the mincrypt verifier,
  * using SHA1 and RSA keys.
  */
-class SignApk {
+public class SignApk {
     private static final String CERT_SF_NAME = "META-INF/CERT.SF";
     private static final String CERT_RSA_NAME = "META-INF/CERT.RSA";
 
@@ -72,7 +73,7 @@ class SignApk {
             main.putAll(input.getMainAttributes());
         }
         main.putValue("Manifest-Version", "1.0");
-        main.putValue("Created-By", "d2j-apk-sign " + SignApk.class.getPackage().getImplementationVersion());
+        main.putValue("Created-By", "d2j-apk-sign null");
 
         MessageDigest md = MessageDigest.getInstance("SHA1");
         byte[] buffer = new byte[4096];
@@ -129,8 +130,17 @@ class SignApk {
             } catch (SignatureException e) {
                 throw new IOException("SignatureException: " + e);
             }
-            super.write(b);
+            out.write(b);
             mCount++;
+        }
+
+        public void write(byte buffer[]) throws IOException {
+            try {
+                mSignature.update(buffer);
+            } catch (SignatureException e) {
+                throw new IOException("SignatureException: " + e);
+            }
+            out.write(buffer);
         }
 
         @Override
@@ -140,7 +150,7 @@ class SignApk {
             } catch (SignatureException e) {
                 throw new IOException("SignatureException: " + e);
             }
-            super.write(b, off, len);
+            out.write(b, off, len);
             mCount += len;
         }
 
@@ -152,11 +162,9 @@ class SignApk {
     /** Write a .SF file with a digest of the specified manifest. */
     private static void writeSignatureFile(Manifest manifest, SignatureOutputStream out) throws IOException,
             GeneralSecurityException {
-        Manifest sf = new Manifest();
-        Attributes main = sf.getMainAttributes();
-        main.putValue("Signature-Version", "1.0");
-        main.putValue("Created-By", "1.0 (Android SignApk)");
-        main.putValue("Manifest-Version", "1.0");// for Harmony
+
+        out.write("Signature-Version: 1.0\r\n".getBytes("UTF-8"));
+        out.write("Created-By: 1.0 (Android SignApk)\r\n".getBytes("UTF-8"));
 
         MessageDigest md = MessageDigest.getInstance("SHA1");
         PrintStream print = new PrintStream(new DigestOutputStream(new ByteArrayOutputStream(), md), true, "UTF-8");
@@ -164,8 +172,12 @@ class SignApk {
         // Digest of the entire manifest
         manifest.write(print);
         print.flush();
-        main.putValue("SHA1-Digest-Manifest", Base64.encode(md.digest()));
+        out.write("SHA1-Digest-Manifest: ".getBytes("UTF-8"));
+        out.write(Base64.encode(md.digest()).getBytes("UTF-8"));
+        out.write('\r');
+        out.write('\n');
 
+        Manifest sf = new Manifest();
         Map<String, Attributes> entries = manifest.getEntries();
         for (Map.Entry<String, Attributes> entry : entries.entrySet()) {
             // Digest of the manifest stanza for this entry.
@@ -196,6 +208,7 @@ class SignApk {
     /** Write a .RSA file with a digital signature. */
     private static void writeSignatureBlock(Signature signature, X509Certificate publicKey, OutputStream out)
             throws IOException, GeneralSecurityException {
+        byte[] signData = signature.sign();
         AlgorithmIdentifier digestAlgorithm = new AlgorithmIdentifier("1.3.14.3.2.26", new byte[] { 5, 0 });// sha1
         AlgorithmIdentifier digestEncryptionAlgorithm = new AlgorithmIdentifier("1.2.840.113549.1.1.1", new byte[] { 5,
                 0 });// RSA
@@ -205,7 +218,7 @@ class SignApk {
         Object[] issuerAndSerialNumber = new Object[] { certificate.getTbsCertificate().getIssuer(),
                 certificate.getTbsCertificate().getSerialNumber().toByteArray() };
         List<?> signerInfos = Arrays.asList(new SignerInfo(1, issuerAndSerialNumber, digestAlgorithm, null,
-                digestEncryptionAlgorithm, signature.sign(), null));
+                digestEncryptionAlgorithm, signData, null));
         SignedData sd = new SignedData(1, Arrays.asList(digestAlgorithm), new ContentInfo(ContentInfo.DATA, null),
                 certificates, null, signerInfos);
         ContentInfo content = new ContentInfo(ContentInfo.SIGNED_DATA, sd);
