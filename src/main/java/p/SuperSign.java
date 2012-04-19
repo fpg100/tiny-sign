@@ -24,9 +24,9 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
 
+import org.apache.commons.codec.binary.Base64;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.IOUtils;
-import org.apache.harmony.misc.Base64;
 
 public class SuperSign {
     /** Write to another stream and also feed it to the Signature object. */
@@ -126,7 +126,7 @@ public class SuperSign {
             print.flush();
 
             Attributes sfAttr = new Attributes();
-            sfAttr.putValue("SHA1-Digest", Base64.encode(md.digest()));
+            sfAttr.putValue("SHA1-Digest", Base64.encodeBase64String(md.digest()));
             sf.getEntries().put(entry.getKey(), sfAttr);
         }
         return sf;
@@ -143,7 +143,7 @@ public class SuperSign {
         zos.putNextEntry(new ZipEntry("META-INF/MANIFEST.MF"));
         manifest.write(dos);
         zos.closeEntry();
-        return Base64.encode(md.digest());
+        return Base64.encodeBase64String(md.digest());
     }
 
     private static byte[] writeSF(ZipOutputStream zos, Manifest sf, String sha1Manifest) throws Exception {
@@ -167,7 +167,7 @@ public class SuperSign {
     private static void writeRSA(ZipOutputStream zos, byte[] sign) throws IOException {
         zos.putNextEntry(new ZipEntry("META-INF/CERT.RSA"));
         zos.write(Base64
-                .decode("MIICAAYJKoZIhvcNAQcCoIIB8TCCAe0CAQExCzAJBgUrDgMCGgUAMAsGCSqGSIb3DQEHAaCCAUYwggFCMIHtoAMCAQICBFKjQekwDQYJKoZIhvcNAQELBQAwFzEVMBMGA1UEAxMMYSB0ZXN0IHZpcnVzMB4XDTEyMDQxOTE3NDE1NFoXDTEzMDQxOTE3NDE1NFowFzEVMBMGA1UEAxMMYSB0ZXN0IHZpcnVzMFwwDQYJKoZIhvcNAQEBBQADSwAwSAJBAKPFIdA8PC/D5osCY9nXVtiU87qx2RPx96fOIkMTk1chNF7o5UHH6Q7nmyfXkIPwEHABJPKVGR9P6eRpySOGMekCAwEAAaMhMB8wHQYDVR0OBBYEFLNGOSoVRWGUvMW0QaAATZFmwNgsMA0GCSqGSIb3DQEBCwUAA0EATR6I4+tNFy6A9nnGZmn4TspVV6H9jbL9iuT9ms9vMlz3Ah+T0YEvo2IOqI8zjvvzWMhxR2mI3Wd9iRjWqwxUkDGBgzCBgAIBATAfMBcxFTATBgNVBAMTDGEgdGVzdCB2aXJ1cwIEUqNB6TAJBgUrDgMCGgUAMA0GCSqGSIb3DQEBAQUABEA="
+                .decodeBase64("MIICAAYJKoZIhvcNAQcCoIIB8TCCAe0CAQExCzAJBgUrDgMCGgUAMAsGCSqGSIb3DQEHAaCCAUYwggFCMIHtoAMCAQICBFKjQekwDQYJKoZIhvcNAQELBQAwFzEVMBMGA1UEAxMMYSB0ZXN0IHZpcnVzMB4XDTEyMDQxOTE3NDE1NFoXDTEzMDQxOTE3NDE1NFowFzEVMBMGA1UEAxMMYSB0ZXN0IHZpcnVzMFwwDQYJKoZIhvcNAQEBBQADSwAwSAJBAKPFIdA8PC/D5osCY9nXVtiU87qx2RPx96fOIkMTk1chNF7o5UHH6Q7nmyfXkIPwEHABJPKVGR9P6eRpySOGMekCAwEAAaMhMB8wHQYDVR0OBBYEFLNGOSoVRWGUvMW0QaAATZFmwNgsMA0GCSqGSIb3DQEBCwUAA0EATR6I4+tNFy6A9nnGZmn4TspVV6H9jbL9iuT9ms9vMlz3Ah+T0YEvo2IOqI8zjvvzWMhxR2mI3Wd9iRjWqwxUkDGBgzCBgAIBATAfMBcxFTATBgNVBAMTDGEgdGVzdCB2aXJ1cwIEUqNB6TAJBgUrDgMCGgUAMA0GCSqGSIb3DQEBAQUABEA="
                         .getBytes("UTF-8")));
         zos.write(sign);
         zos.closeEntry();
@@ -182,7 +182,7 @@ public class SuperSign {
         byte[] digets = dos.getMessageDigest().digest();
         zos.closeEntry();
         Attributes attr = new Attributes();
-        attr.putValue("SHA1-Digest", Base64.encode(digets));
+        attr.putValue("SHA1-Digest", Base64.encodeBase64String(digets));
         m.getEntries().put(name, attr);
     }
 
@@ -226,7 +226,7 @@ public class SuperSign {
 
     private static Signature instanceSignature() throws Exception {
         String privateKeyBase64 = "MIIBVAIBADANBgkqhkiG9w0BAQEFAASCAT4wggE6AgEAAkEAo8Uh0Dw8L8PmiwJj2ddW2JTzurHZE/H3p84iQxOTVyE0XujlQcfpDuebJ9eQg/AQcAEk8pUZH0/p5GnJI4Yx6QIDAQABAkBR6zPEw7yfb/CMLD/iIbMRV0CrbHbXYTuuNpAw2UPkWqyuEEzvWeq76oOSmuLy3HWEmvldAvTX9o4D7QEcW705AiEA0/yQTy7typOqJGATToAtiHzfcr3HDwFBJ6zOdpQruusCIQDFxce/6vjG9SWiaMG7LwL8JEtVtvMqWLGMdIaewEtpewIhAIBZawaGY3ND9MARa58b/HWnJaNTRDLRj6F1/4vMKq4BAiBIy+shlmDqAvROWpbsynojy0w7ibLp5Gm+FGo05v0bHwIgDVmTyRzTDBwH2NqMqTC7Dtl0SQH5b5/FxulG0VdfJ7s=";
-        byte[] data = Base64.decode(privateKeyBase64.getBytes());
+        byte[] data = Base64.decodeBase64(privateKeyBase64.getBytes());
         KeyFactory rSAKeyFactory = KeyFactory.getInstance("RSA");
         PrivateKey privateKey = rSAKeyFactory.generatePrivate(new PKCS8EncodedKeySpec(data));
         Signature signature = Signature.getInstance("SHA1withRSA");
