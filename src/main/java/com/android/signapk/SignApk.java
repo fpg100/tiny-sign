@@ -45,7 +45,6 @@ import java.util.jar.JarOutputStream;
 import java.util.jar.Manifest;
 import java.util.regex.Pattern;
 
-import org.apache.commons.codec.binary.Hex;
 import org.apache.harmony.misc.Base64;
 import org.apache.harmony.security.pkcs7.ContentInfo;
 import org.apache.harmony.security.pkcs7.SignedData;
