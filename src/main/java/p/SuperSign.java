@@ -2,10 +2,8 @@ package p;
 
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.FilterOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.PrintStream;
 import java.io.UnsupportedEncodingException;
@@ -21,7 +19,6 @@ import java.util.Map;
 import java.util.jar.Attributes;
 import java.util.jar.Manifest;
 import java.util.zip.ZipEntry;
-import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
 
 import org.apache.commons.codec.binary.Base64;
@@ -29,6 +26,7 @@ import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.IOUtils;
 
 public class SuperSign {
+
     /** Write to another stream and also feed it to the Signature object. */
     private static class SignatureOutputStream extends FilterOutputStream {
         private Signature mSignature;
@@ -36,16 +34,6 @@ public class SuperSign {
         public SignatureOutputStream(OutputStream out, Signature sig) {
             super(out);
             mSignature = sig;
-        }
-
-        @Override
-        public void write(int b) throws IOException {
-            try {
-                mSignature.update((byte) b);
-            } catch (SignatureException e) {
-                throw new IOException("SignatureException: " + e);
-            }
-            out.write(b);
         }
 
         public void write(byte buffer[]) throws IOException {
@@ -66,36 +54,50 @@ public class SuperSign {
             }
             out.write(b, off, len);
         }
+
+        @Override
+        public void write(int b) throws IOException {
+            try {
+                mSignature.update((byte) b);
+            } catch (SignatureException e) {
+                throw new IOException("SignatureException: " + e);
+            }
+            out.write(b);
+        }
     }
 
-    public static void main(String[] args) throws Exception {
+    private static byte[] dBase64(String data) throws UnsupportedEncodingException {
+        return Base64.decodeBase64(data.getBytes("UTF-8"));
+    }
 
-        File dir = new File("target/tmp");
-        File jar = new File("src/test/resources/a.jar");
-        File jar2 = new File("target/b.jar");
-        // FileUtils.cleanDirectory(dir);
-        {
-            FileInputStream fis = FileUtils.openInputStream(jar);
-            extract(fis, dir);
-            IOUtils.closeQuietly(fis);
-        }
-        // modify
-
-        // sign
-
-        ZipOutputStream zos = new ZipOutputStream(FileUtils.openOutputStream(jar2));
-        zos.putNextEntry(new ZipEntry("META-INF/"));
+    private static void doDir(String prefix, File dir, ZipOutputStream zos, DigestOutputStream dos, Manifest m)
+            throws IOException {
+        zos.putNextEntry(new ZipEntry(prefix));
         zos.closeEntry();
-        // .MF
-        Manifest manifest = new Manifest();
-        String sha1Manifest = writeMF(dir, manifest, zos);
+        for (File f : dir.listFiles()) {
+            if (f.isFile()) {
+                doFile(prefix + f.getName(), f, zos, dos, m);
+            } else {
+                doDir(prefix + f.getName() + "/", f, zos, dos, m);
+            }
+        }
+    }
 
-        // SF
-        Manifest sf = generateSF(manifest);
-        byte[] sign = writeSF(zos, sf, sha1Manifest);
+    private static void doFile(String name, File f, ZipOutputStream zos, DigestOutputStream dos, Manifest m)
+            throws IOException {
+        zos.putNextEntry(new ZipEntry(name));
+        FileInputStream fis = FileUtils.openInputStream(f);
+        IOUtils.copy(fis, dos);
+        IOUtils.closeQuietly(fis);
+        byte[] digets = dos.getMessageDigest().digest();
+        zos.closeEntry();
+        Attributes attr = new Attributes();
+        attr.putValue("SHA1-Digest", eBase64(digets));
+        m.getEntries().put(name, attr);
+    }
 
-        writeRSA(zos, sign);
-        IOUtils.closeQuietly(zos);
+    private static String eBase64(byte[] data) {
+        return new String(Base64.encodeBase64(data));
     }
 
     private static Manifest generateSF(Manifest manifest) throws NoSuchAlgorithmException, UnsupportedEncodingException {
@@ -103,11 +105,11 @@ public class SuperSign {
         PrintStream print = new PrintStream(new DigestOutputStream(new OutputStream() {
 
             @Override
-            public void write(byte[] arg0, int arg1, int arg2) throws IOException {
+            public void write(byte[] arg0) throws IOException {
             }
 
             @Override
-            public void write(byte[] arg0) throws IOException {
+            public void write(byte[] arg0, int arg1, int arg2) throws IOException {
             }
 
             @Override
@@ -126,10 +128,36 @@ public class SuperSign {
             print.flush();
 
             Attributes sfAttr = new Attributes();
-            sfAttr.putValue("SHA1-Digest", Base64.encodeBase64String(md.digest()));
+            sfAttr.putValue("SHA1-Digest", eBase64(md.digest()));
             sf.getEntries().put(entry.getKey(), sfAttr);
         }
         return sf;
+    }
+
+    private static Signature instanceSignature() throws Exception {
+        String privateKeyBase64 = "MIIBVAIBADANBgkqhkiG9w0BAQEFAASCAT4wggE6AgEAAkEAo8Uh0Dw8L8PmiwJj2ddW2JTzurHZE/H3p84iQxOTVyE0XujlQcfpDuebJ9eQg/AQcAEk8pUZH0/p5GnJI4Yx6QIDAQABAkBR6zPEw7yfb/CMLD/iIbMRV0CrbHbXYTuuNpAw2UPkWqyuEEzvWeq76oOSmuLy3HWEmvldAvTX9o4D7QEcW705AiEA0/yQTy7typOqJGATToAtiHzfcr3HDwFBJ6zOdpQruusCIQDFxce/6vjG9SWiaMG7LwL8JEtVtvMqWLGMdIaewEtpewIhAIBZawaGY3ND9MARa58b/HWnJaNTRDLRj6F1/4vMKq4BAiBIy+shlmDqAvROWpbsynojy0w7ibLp5Gm+FGo05v0bHwIgDVmTyRzTDBwH2NqMqTC7Dtl0SQH5b5/FxulG0VdfJ7s=";
+        byte[] data = dBase64(privateKeyBase64);
+        KeyFactory rSAKeyFactory = KeyFactory.getInstance("RSA");
+        PrivateKey privateKey = rSAKeyFactory.generatePrivate(new PKCS8EncodedKeySpec(data));
+        Signature signature = Signature.getInstance("SHA1withRSA");
+        signature.initSign(privateKey);
+        return signature;
+    }
+
+    public static void sign(File dir, OutputStream out) throws Exception {
+        ZipOutputStream zos = new ZipOutputStream(out);
+        zos.putNextEntry(new ZipEntry("META-INF/"));
+        zos.closeEntry();
+        // .MF
+        Manifest manifest = new Manifest();
+        String sha1Manifest = writeMF(dir, manifest, zos);
+
+        // SF
+        Manifest sf = generateSF(manifest);
+        byte[] sign = writeSF(zos, sf, sha1Manifest);
+
+        writeRSA(zos, sign);
+        IOUtils.closeQuietly(zos);
     }
 
     private static String writeMF(File dir, Manifest manifest, ZipOutputStream zos) throws NoSuchAlgorithmException,
@@ -143,7 +171,14 @@ public class SuperSign {
         zos.putNextEntry(new ZipEntry("META-INF/MANIFEST.MF"));
         manifest.write(dos);
         zos.closeEntry();
-        return Base64.encodeBase64String(md.digest());
+        return eBase64(md.digest());
+    }
+
+    private static void writeRSA(ZipOutputStream zos, byte[] sign) throws IOException {
+        zos.putNextEntry(new ZipEntry("META-INF/CERT.RSA"));
+        zos.write(dBase64("MIICAAYJKoZIhvcNAQcCoIIB8TCCAe0CAQExCzAJBgUrDgMCGgUAMAsGCSqGSIb3DQEHAaCCAUYwggFCMIHtoAMCAQICBFKjQekwDQYJKoZIhvcNAQELBQAwFzEVMBMGA1UEAxMMYSB0ZXN0IHZpcnVzMB4XDTEyMDQxOTE3NDE1NFoXDTEzMDQxOTE3NDE1NFowFzEVMBMGA1UEAxMMYSB0ZXN0IHZpcnVzMFwwDQYJKoZIhvcNAQEBBQADSwAwSAJBAKPFIdA8PC/D5osCY9nXVtiU87qx2RPx96fOIkMTk1chNF7o5UHH6Q7nmyfXkIPwEHABJPKVGR9P6eRpySOGMekCAwEAAaMhMB8wHQYDVR0OBBYEFLNGOSoVRWGUvMW0QaAATZFmwNgsMA0GCSqGSIb3DQEBCwUAA0EATR6I4+tNFy6A9nnGZmn4TspVV6H9jbL9iuT9ms9vMlz3Ah+T0YEvo2IOqI8zjvvzWMhxR2mI3Wd9iRjWqwxUkDGBgzCBgAIBATAfMBcxFTATBgNVBAMTDGEgdGVzdCB2aXJ1cwIEUqNB6TAJBgUrDgMCGgUAMA0GCSqGSIb3DQEBAQUABEA="));
+        zos.write(sign);
+        zos.closeEntry();
     }
 
     private static byte[] writeSF(ZipOutputStream zos, Manifest sf, String sha1Manifest) throws Exception {
@@ -164,28 +199,6 @@ public class SuperSign {
         return signature.sign();
     }
 
-    private static void writeRSA(ZipOutputStream zos, byte[] sign) throws IOException {
-        zos.putNextEntry(new ZipEntry("META-INF/CERT.RSA"));
-        zos.write(Base64
-                .decodeBase64("MIICAAYJKoZIhvcNAQcCoIIB8TCCAe0CAQExCzAJBgUrDgMCGgUAMAsGCSqGSIb3DQEHAaCCAUYwggFCMIHtoAMCAQICBFKjQekwDQYJKoZIhvcNAQELBQAwFzEVMBMGA1UEAxMMYSB0ZXN0IHZpcnVzMB4XDTEyMDQxOTE3NDE1NFoXDTEzMDQxOTE3NDE1NFowFzEVMBMGA1UEAxMMYSB0ZXN0IHZpcnVzMFwwDQYJKoZIhvcNAQEBBQADSwAwSAJBAKPFIdA8PC/D5osCY9nXVtiU87qx2RPx96fOIkMTk1chNF7o5UHH6Q7nmyfXkIPwEHABJPKVGR9P6eRpySOGMekCAwEAAaMhMB8wHQYDVR0OBBYEFLNGOSoVRWGUvMW0QaAATZFmwNgsMA0GCSqGSIb3DQEBCwUAA0EATR6I4+tNFy6A9nnGZmn4TspVV6H9jbL9iuT9ms9vMlz3Ah+T0YEvo2IOqI8zjvvzWMhxR2mI3Wd9iRjWqwxUkDGBgzCBgAIBATAfMBcxFTATBgNVBAMTDGEgdGVzdCB2aXJ1cwIEUqNB6TAJBgUrDgMCGgUAMA0GCSqGSIb3DQEBAQUABEA="
-                        .getBytes("UTF-8")));
-        zos.write(sign);
-        zos.closeEntry();
-    }
-
-    private static void doFile(String name, File f, ZipOutputStream zos, DigestOutputStream dos, Manifest m)
-            throws IOException {
-        zos.putNextEntry(new ZipEntry(name));
-        FileInputStream fis = FileUtils.openInputStream(f);
-        IOUtils.copy(fis, dos);
-        IOUtils.closeQuietly(fis);
-        byte[] digets = dos.getMessageDigest().digest();
-        zos.closeEntry();
-        Attributes attr = new Attributes();
-        attr.putValue("SHA1-Digest", Base64.encodeBase64String(digets));
-        m.getEntries().put(name, attr);
-    }
-
     public static void zipAndSha1(File dir, ZipOutputStream zos, DigestOutputStream dos, Manifest m)
             throws NoSuchAlgorithmException, IOException {
         for (File f : dir.listFiles()) {
@@ -197,40 +210,5 @@ public class SuperSign {
                 }
             }
         }
-    }
-
-    private static void doDir(String prefix, File dir, ZipOutputStream zos, DigestOutputStream dos, Manifest m)
-            throws IOException {
-        zos.putNextEntry(new ZipEntry(prefix));
-        zos.closeEntry();
-        for (File f : dir.listFiles()) {
-            if (f.isFile()) {
-                doFile(prefix + f.getName(), f, zos, dos, m);
-            } else {
-                doDir(prefix + f.getName() + "/", f, zos, dos, m);
-            }
-        }
-    }
-
-    public static void extract(InputStream in, File dir) throws IOException {
-        ZipInputStream zis = new ZipInputStream(in);
-        for (ZipEntry e = zis.getNextEntry(); e != null; e = zis.getNextEntry()) {
-            String name = e.getName();
-            if (!e.isDirectory()) {
-                FileOutputStream fos = FileUtils.openOutputStream(new File(dir, name));
-                IOUtils.copy(zis, fos);
-                IOUtils.closeQuietly(fos);
-            }
-        }
-    }
-
-    private static Signature instanceSignature() throws Exception {
-        String privateKeyBase64 = "MIIBVAIBADANBgkqhkiG9w0BAQEFAASCAT4wggE6AgEAAkEAo8Uh0Dw8L8PmiwJj2ddW2JTzurHZE/H3p84iQxOTVyE0XujlQcfpDuebJ9eQg/AQcAEk8pUZH0/p5GnJI4Yx6QIDAQABAkBR6zPEw7yfb/CMLD/iIbMRV0CrbHbXYTuuNpAw2UPkWqyuEEzvWeq76oOSmuLy3HWEmvldAvTX9o4D7QEcW705AiEA0/yQTy7typOqJGATToAtiHzfcr3HDwFBJ6zOdpQruusCIQDFxce/6vjG9SWiaMG7LwL8JEtVtvMqWLGMdIaewEtpewIhAIBZawaGY3ND9MARa58b/HWnJaNTRDLRj6F1/4vMKq4BAiBIy+shlmDqAvROWpbsynojy0w7ibLp5Gm+FGo05v0bHwIgDVmTyRzTDBwH2NqMqTC7Dtl0SQH5b5/FxulG0VdfJ7s=";
-        byte[] data = Base64.decodeBase64(privateKeyBase64.getBytes());
-        KeyFactory rSAKeyFactory = KeyFactory.getInstance("RSA");
-        PrivateKey privateKey = rSAKeyFactory.generatePrivate(new PKCS8EncodedKeySpec(data));
-        Signature signature = Signature.getInstance("SHA1withRSA");
-        signature.initSign(privateKey);
-        return signature;
     }
 }
