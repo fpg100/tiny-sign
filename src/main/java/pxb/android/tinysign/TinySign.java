@@ -1,4 +1,19 @@
-package p;
+/*
+ * Copyright (c) 2009-2012 Panxiaobo
+ * 
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ * 
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ * 
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package pxb.android.tinysign;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -25,7 +40,13 @@ import org.apache.commons.codec.binary.Base64;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.IOUtils;
 
-public class SuperSign {
+/**
+ * create a signed jar in quick way
+ * 
+ * @author <a href="mailto:pxb1988@gmail.com">Panxiaobo</a>
+ * 
+ */
+public class TinySign {
 
     /** Write to another stream and also feed it to the Signature object. */
     private static class SignatureOutputStream extends FilterOutputStream {
@@ -135,8 +156,7 @@ public class SuperSign {
     }
 
     private static Signature instanceSignature() throws Exception {
-        String privateKeyBase64 = "MIIBVAIBADANBgkqhkiG9w0BAQEFAASCAT4wggE6AgEAAkEAo8Uh0Dw8L8PmiwJj2ddW2JTzurHZE/H3p84iQxOTVyE0XujlQcfpDuebJ9eQg/AQcAEk8pUZH0/p5GnJI4Yx6QIDAQABAkBR6zPEw7yfb/CMLD/iIbMRV0CrbHbXYTuuNpAw2UPkWqyuEEzvWeq76oOSmuLy3HWEmvldAvTX9o4D7QEcW705AiEA0/yQTy7typOqJGATToAtiHzfcr3HDwFBJ6zOdpQruusCIQDFxce/6vjG9SWiaMG7LwL8JEtVtvMqWLGMdIaewEtpewIhAIBZawaGY3ND9MARa58b/HWnJaNTRDLRj6F1/4vMKq4BAiBIy+shlmDqAvROWpbsynojy0w7ibLp5Gm+FGo05v0bHwIgDVmTyRzTDBwH2NqMqTC7Dtl0SQH5b5/FxulG0VdfJ7s=";
-        byte[] data = dBase64(privateKeyBase64);
+        byte[] data = dBase64(Constants.privateKey);
         KeyFactory rSAKeyFactory = KeyFactory.getInstance("RSA");
         PrivateKey privateKey = rSAKeyFactory.generatePrivate(new PKCS8EncodedKeySpec(data));
         Signature signature = Signature.getInstance("SHA1withRSA");
@@ -144,6 +164,15 @@ public class SuperSign {
         return signature;
     }
 
+    /**
+     * create a signed jar from dir to out
+     * 
+     * @param dir
+     *            a folder contains file
+     * @param out
+     *            the output jar
+     * @throws Exception
+     */
     public static void sign(File dir, OutputStream out) throws Exception {
         ZipOutputStream zos = new ZipOutputStream(out);
         zos.putNextEntry(new ZipEntry("META-INF/"));
@@ -167,7 +196,7 @@ public class SuperSign {
         zipAndSha1(dir, zos, dos, manifest);
         Attributes main = manifest.getMainAttributes();
         main.putValue("Manifest-Version", "1.0");
-        main.putValue("Created-By", "super-sign");
+        main.putValue("Created-By", "tiny-sign-" + TinySign.class.getPackage().getImplementationVersion());
         zos.putNextEntry(new ZipEntry("META-INF/MANIFEST.MF"));
         manifest.write(dos);
         zos.closeEntry();
@@ -176,7 +205,7 @@ public class SuperSign {
 
     private static void writeRSA(ZipOutputStream zos, byte[] sign) throws IOException {
         zos.putNextEntry(new ZipEntry("META-INF/CERT.RSA"));
-        zos.write(dBase64("MIICAAYJKoZIhvcNAQcCoIIB8TCCAe0CAQExCzAJBgUrDgMCGgUAMAsGCSqGSIb3DQEHAaCCAUYwggFCMIHtoAMCAQICBFKjQekwDQYJKoZIhvcNAQELBQAwFzEVMBMGA1UEAxMMYSB0ZXN0IHZpcnVzMB4XDTEyMDQxOTE3NDE1NFoXDTEzMDQxOTE3NDE1NFowFzEVMBMGA1UEAxMMYSB0ZXN0IHZpcnVzMFwwDQYJKoZIhvcNAQEBBQADSwAwSAJBAKPFIdA8PC/D5osCY9nXVtiU87qx2RPx96fOIkMTk1chNF7o5UHH6Q7nmyfXkIPwEHABJPKVGR9P6eRpySOGMekCAwEAAaMhMB8wHQYDVR0OBBYEFLNGOSoVRWGUvMW0QaAATZFmwNgsMA0GCSqGSIb3DQEBCwUAA0EATR6I4+tNFy6A9nnGZmn4TspVV6H9jbL9iuT9ms9vMlz3Ah+T0YEvo2IOqI8zjvvzWMhxR2mI3Wd9iRjWqwxUkDGBgzCBgAIBATAfMBcxFTATBgNVBAMTDGEgdGVzdCB2aXJ1cwIEUqNB6TAJBgUrDgMCGgUAMA0GCSqGSIb3DQEBAQUABEA="));
+        zos.write(dBase64(Constants.sigPrefix));
         zos.write(sign);
         zos.closeEntry();
     }
@@ -186,7 +215,8 @@ public class SuperSign {
         zos.putNextEntry(new ZipEntry("META-INF/CERT.SF"));
         SignatureOutputStream out = new SignatureOutputStream(zos, signature);
         out.write("Signature-Version: 1.0\r\n".getBytes("UTF-8"));
-        out.write("Created-By: 1.0 (super-sign)\r\n".getBytes("UTF-8"));
+        out.write(("Created-By: tiny-sign-" + TinySign.class.getPackage().getImplementationVersion() + "\r\n")
+                .getBytes("UTF-8"));
         out.write("SHA1-Digest-Manifest: ".getBytes("UTF-8"));
         out.write(sha1Manifest.getBytes("UTF-8"));
         out.write('\r');
@@ -199,7 +229,7 @@ public class SuperSign {
         return signature.sign();
     }
 
-    public static void zipAndSha1(File dir, ZipOutputStream zos, DigestOutputStream dos, Manifest m)
+    private static void zipAndSha1(File dir, ZipOutputStream zos, DigestOutputStream dos, Manifest m)
             throws NoSuchAlgorithmException, IOException {
         for (File f : dir.listFiles()) {
             if (!f.getName().startsWith("META-INF")) {
